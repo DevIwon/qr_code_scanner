@@ -61,6 +61,9 @@ class QRView(
 
         QrShared.binding?.removeRequestPermissionsResultListener(this)
 
+        // Stop the decoder worker before pausing so it does not retain the
+        // camera surface while we tear it down.
+        barcodeView?.stopDecoding()
         barcodeView?.pause()
         barcodeView = null
     }
@@ -80,8 +83,9 @@ class QRView(
 
             "pauseCamera" -> pauseCamera(result)
 
-            // Stopping camera is the same as pausing camera
-            "stopCamera" -> pauseCamera(result)
+            // Fully stop the camera and release the underlying barcode view
+            // so the camera hardware is freed (not just paused).
+            "stopCamera" -> stopCamera(result)
 
             "resumeCamera" -> resumeCamera(result)
 
@@ -211,6 +215,19 @@ class QRView(
             isPaused = true
             barcodeView.pause()
         }
+
+        result.success(true)
+    }
+
+    private fun stopCamera(result: MethodChannel.Result) {
+        val view = barcodeView ?: return barCodeViewNotSet(result)
+
+        // Fully release: stop the decoder worker, pause the preview, and
+        // drop the strong reference so the camera hardware is freed.
+        view.stopDecoding()
+        view.pause()
+        isPaused = true
+        this.barcodeView = null
 
         result.success(true)
     }

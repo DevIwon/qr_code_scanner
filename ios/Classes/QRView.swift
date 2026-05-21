@@ -45,6 +45,7 @@ public class QRView:NSObject,FlutterPlatformView {
     
     deinit {
         scanner?.stopScanning()
+        scanner = nil
     }
     
     public func view() -> UIView {
@@ -217,6 +218,10 @@ public class QRView:NSObject,FlutterPlatformView {
                 sc.stopScanning()
             }
         }
+        // Release the scanner to free the underlying AVCaptureSession immediately.
+        // Without this, the camera (and iOS Dynamic Island indicator) lingers.
+        self.scanner = nil
+        result(true)
     }
     
     func getCameraInfo(_ result: @escaping FlutterResult) {
