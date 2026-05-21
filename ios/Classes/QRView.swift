@@ -44,8 +44,11 @@ public class QRView:NSObject,FlutterPlatformView {
     }
     
     deinit {
-        scanner?.stopScanning()
+        let scannerToStop = scanner
         scanner = nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            scannerToStop?.stopScanning()
+        }
     }
     
     public func view() -> UIView {
@@ -213,14 +216,13 @@ public class QRView:NSObject,FlutterPlatformView {
     }
     
     func stopCamera(_ result: @escaping FlutterResult) {
-        if let sc: MTBBarcodeScanner = self.scanner {
-            if sc.isScanning() {
+        let scannerToStop = self.scanner
+        self.scanner = nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let sc = scannerToStop, sc.isScanning() {
                 sc.stopScanning()
             }
         }
-        // Release the scanner to free the underlying AVCaptureSession immediately.
-        // Without this, the camera (and iOS Dynamic Island indicator) lingers.
-        self.scanner = nil
         result(true)
     }
     
