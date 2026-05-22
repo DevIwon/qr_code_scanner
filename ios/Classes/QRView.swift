@@ -5,6 +5,7 @@
 //  Created by Julius Canute on 21/12/18.
 //
 
+import AVFoundation
 import Foundation
 import MTBBarcodeScanner
 
@@ -44,10 +45,39 @@ public class QRView:NSObject,FlutterPlatformView {
     }
     
     deinit {
-        let scannerToStop = scanner
+        QRView.teardownScannerAsync(scanner)
         scanner = nil
-        DispatchQueue.global(qos: .userInitiated).async {
-            scannerToStop?.stopScanning()
+    }
+
+    // MTBBarcodeScanner.stopScanning() touches CALayer (removeFromSuperlayer) and
+    // torch state, so it MUST run on the main thread. Internally MTB already
+    // dispatches AVCaptureSession.stopRunning() onto its private session queue,
+    // but on iOS 17+ a still-running session keeps main blocked through KVO /
+    // pipeline teardown chains, causing a multi-second freeze on pop and an
+    // even longer camera-indicator delay.
+    //
+    // Strategy: pull the session out via KVC and call stopRunning() on a
+    // background queue FIRST. By the time scanner.stopScanning() runs on main,
+    // the session is already stopped, so the UI-cleanup path is fast.
+    //
+    // Do NOT move scanner.stopScanning() off the main thread — it triggers
+    // UIKitCore "Modifying properties of a view's layer off the main thread"
+    // and leaves the AVCaptureSession partially torn down.
+    private static func teardownScannerAsync(_ scanner: MTBBarcodeScanner?) {
+        guard let scanner = scanner else { return }
+        let session = scanner.value(forKey: "session") as? AVCaptureSession
+
+        let mainTeardown = { scanner.stopScanning() }
+
+        if let session = session, session.isRunning {
+            DispatchQueue.global(qos: .userInitiated).async {
+                session.stopRunning()
+                DispatchQueue.main.async(execute: mainTeardown)
+            }
+        } else if Thread.isMainThread {
+            mainTeardown()
+        } else {
+            DispatchQueue.main.async(execute: mainTeardown)
         }
     }
     
@@ -216,13 +246,8 @@ public class QRView:NSObject,FlutterPlatformView {
     }
     
     func stopCamera(_ result: @escaping FlutterResult) {
-        let scannerToStop = self.scanner
+        QRView.teardownScannerAsync(self.scanner)
         self.scanner = nil
-        DispatchQueue.global(qos: .userInitiated).async {
-            if let sc = scannerToStop, sc.isScanning() {
-                sc.stopScanning()
-            }
-        }
         result(true)
     }
     
